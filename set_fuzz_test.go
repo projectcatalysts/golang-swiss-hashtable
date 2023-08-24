@@ -1,4 +1,4 @@
-// Copyright 2023 Dolthub, Inc.
+// Copyright 2023 Project Catalysts Ltd.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,6 +14,12 @@
 
 package swiss
 
+// Set is a derivative work from the Map container created by Dolthub, Inc
+// and available at https://github.com/dolthub/swiss/.  Dolthub's Map is an
+// open-addressing hash map based on Abseil's flat_hash_map.
+//
+// Set incorporates significant to work as a set rather than as a map, and requires callers
+// to provide thier own hash.  It also incorporates several small performance optimisations.
 import (
 	"testing"
 
