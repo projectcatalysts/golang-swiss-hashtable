@@ -29,36 +29,44 @@ func TestMatchMetadata(t *testing.T) {
 		meta[i] = int8(i)
 	}
 	t.Run("metaMatchH2", func(t *testing.T) {
+		var mask bitset
+		var next uint32
 		for _, x := range meta {
-			mask := metaMatchH2(&meta, h2(x))
+			mask = metaMatchH2(&meta, h2(x))
 			assert.NotZero(t, mask)
-			assert.Equal(t, uint32(x), nextMatch(&mask))
+			next, _ = nextMatch(mask)
+			assert.Equal(t, uint32(x), next)
 		}
 	})
 	t.Run("metaMatchEmpty", func(t *testing.T) {
 		mask := metaMatchEmpty(&meta)
+		var next uint32
 		assert.Equal(t, mask, bitset(0))
 		for i := range meta {
 			meta[i] = empty
 			mask = metaMatchEmpty(&meta)
 			assert.NotZero(t, mask)
-			assert.Equal(t, uint32(i), nextMatch(&mask))
+			next, _ = nextMatch(mask)
+			assert.Equal(t, uint32(i), next)
 			meta[i] = int8(i)
 		}
 	})
 	t.Run("nextMatch", func(t *testing.T) {
 		// test iterating multiple matches
-		meta = newEmptyMetadata()
+		meta = emptyMeta
 		mask := metaMatchEmpty(&meta)
+		var next uint32
 		for i := range meta {
-			assert.Equal(t, uint32(i), nextMatch(&mask))
+			next, mask = nextMatch(mask)
+			assert.Equal(t, uint32(i), next)
 		}
 		for i := 0; i < len(meta); i += 2 {
 			meta[i] = int8(42)
 		}
 		mask = metaMatchH2(&meta, h2(42))
 		for i := 0; i < len(meta); i += 2 {
-			assert.Equal(t, uint32(i), nextMatch(&mask))
+			next, mask = nextMatch(mask)
+			assert.Equal(t, uint32(i), next)
 		}
 	})
 }

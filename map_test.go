@@ -15,7 +15,6 @@
 package swiss
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 	"testing"
@@ -27,42 +26,42 @@ import (
 
 func TestSwissMap(t *testing.T) {
 	t.Run("strings=0", func(t *testing.T) {
-		testSwissMap(t, genStringData(16, 0))
+		testSwissMap(t, genStringMapData(16, 0))
 	})
 	t.Run("strings=100", func(t *testing.T) {
-		testSwissMap(t, genStringData(16, 100))
+		testSwissMap(t, genStringMapData(16, 100))
 	})
 	t.Run("strings=1000", func(t *testing.T) {
-		testSwissMap(t, genStringData(16, 1000))
+		testSwissMap(t, genStringMapData(16, 1000))
 	})
 	t.Run("strings=10_000", func(t *testing.T) {
-		testSwissMap(t, genStringData(16, 10_000))
+		testSwissMap(t, genStringMapData(16, 10_000))
 	})
 	t.Run("strings=100_000", func(t *testing.T) {
-		testSwissMap(t, genStringData(16, 100_000))
+		testSwissMap(t, genStringMapData(16, 100_000))
 	})
 	t.Run("uint32=0", func(t *testing.T) {
-		testSwissMap(t, genUint32Data(0))
+		testSwissMap(t, genUint32MapData(0))
 	})
 	t.Run("uint32=100", func(t *testing.T) {
-		testSwissMap(t, genUint32Data(100))
+		testSwissMap(t, genUint32MapData(100))
 	})
 	t.Run("uint32=1000", func(t *testing.T) {
-		testSwissMap(t, genUint32Data(1000))
+		testSwissMap(t, genUint32MapData(1000))
 	})
 	t.Run("uint32=10_000", func(t *testing.T) {
-		testSwissMap(t, genUint32Data(10_000))
+		testSwissMap(t, genUint32MapData(10_000))
 	})
 	t.Run("uint32=100_000", func(t *testing.T) {
-		testSwissMap(t, genUint32Data(100_000))
+		testSwissMap(t, genUint32MapData(100_000))
 	})
 	t.Run("string capacity", func(t *testing.T) {
 		testSwissMapCapacity(t, func(n int) []string {
-			return genStringData(16, n)
+			return genStringMapData(16, n)
 		})
 	})
 	t.Run("uint32 capacity", func(t *testing.T) {
-		testSwissMapCapacity(t, genUint32Data)
+		testSwissMapCapacity(t, genUint32MapData)
 	})
 }
 
@@ -91,23 +90,11 @@ func testSwissMap[K comparable](t *testing.T, keys []K) {
 		testMapGrow(t, keys)
 	})
 	t.Run("probe stats", func(t *testing.T) {
-		testProbeStats(t, keys)
+		testMapProbeStats(t, keys)
 	})
 }
 
-func uniq[K comparable](keys []K) []K {
-	s := make(map[K]struct{}, len(keys))
-	for _, k := range keys {
-		s[k] = struct{}{}
-	}
-	u := make([]K, 0, len(keys))
-	for k := range s {
-		u = append(u, k)
-	}
-	return u
-}
-
-func genStringData(size, count int) (keys []string) {
+func genStringMapData(size, count int) (keys []string) {
 	src := rand.New(rand.NewSource(int64(size * count)))
 	letters := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 	r := make([]rune, size*count)
@@ -122,7 +109,7 @@ func genStringData(size, count int) (keys []string) {
 	return
 }
 
-func genUint32Data(count int) (keys []uint32) {
+func genUint32MapData(count int) (keys []uint32) {
 	keys = make([]uint32, count)
 	var x uint32
 	for i := range keys {
@@ -295,7 +282,7 @@ func testSwissMapCapacity[K comparable](t *testing.T, gen func(n int) []K) {
 	}
 }
 
-func testProbeStats[K comparable](t *testing.T, keys []K) {
+func testMapProbeStats[K comparable](t *testing.T, keys []K) {
 	runTest := func(load float32) {
 		n := uint32(len(keys))
 		sz, k := loadFactorSample(n, load)
@@ -304,7 +291,7 @@ func testProbeStats[K comparable](t *testing.T, keys []K) {
 			m.Put(key, i)
 		}
 		// todo: assert stat invariants?
-		stats := getProbeStats(t, m, keys)
+		stats := getMapProbeStats(t, m, keys)
 		t.Log(fmtProbeStats(stats))
 	}
 	t.Run("load_factor=0.5", func(t *testing.T) {
@@ -318,43 +305,9 @@ func testProbeStats[K comparable](t *testing.T, keys []K) {
 	})
 }
 
-// calculates the sample size and map size necessary to
-// create a load factor of |load| given |n| data points
-func loadFactorSample(n uint32, targetLoad float32) (mapSz, sampleSz uint32) {
-	if targetLoad > maxLoadFactor {
-		targetLoad = maxLoadFactor
-	}
-	// tables are assumed to be power of two
-	sampleSz = uint32(float32(n) * targetLoad)
-	mapSz = uint32(float32(n) * maxLoadFactor)
-	return
-}
-
-type probeStats struct {
-	groups     uint32
-	loadFactor float32
-	presentCnt uint32
-	presentMin uint32
-	presentMax uint32
-	presentAvg float32
-	absentCnt  uint32
-	absentMin  uint32
-	absentMax  uint32
-	absentAvg  float32
-}
-
-func fmtProbeStats(s probeStats) string {
-	g := fmt.Sprintf("groups=%d load=%f\n", s.groups, s.loadFactor)
-	p := fmt.Sprintf("present(n=%d): min=%d max=%d avg=%f\n",
-		s.presentCnt, s.presentMin, s.presentMax, s.presentAvg)
-	a := fmt.Sprintf("absent(n=%d):  min=%d max=%d avg=%f\n",
-		s.absentCnt, s.absentMin, s.absentMax, s.absentAvg)
-	return g + p + a
-}
-
-func getProbeLength[K comparable, V any](t *testing.T, m *Map[K, V], key K) (length uint32, ok bool) {
+func getMapProbeLength[K comparable, V any](t *testing.T, m *Map[K, V], key K) (length uint32, ok bool) {
 	var end uint32
-	hi, lo := splitHash(m.hash.Hash(key))
+	hi, lo := splitHash(Hash(m.hash.Hash(key)))
 	start := probeStart(hi, len(m.groups))
 	end, _, ok = m.find(key, hi, lo)
 	if end < start { // wrapped
@@ -365,14 +318,14 @@ func getProbeLength[K comparable, V any](t *testing.T, m *Map[K, V], key K) (len
 	return
 }
 
-func getProbeStats[K comparable, V any](t *testing.T, m *Map[K, V], keys []K) (stats probeStats) {
+func getMapProbeStats[K comparable, V any](t *testing.T, m *Map[K, V], keys []K) (stats probeStats) {
 	stats.groups = uint32(len(m.groups))
 	stats.loadFactor = m.loadFactor()
 	var presentSum, absentSum float32
 	stats.presentMin = math.MaxInt32
 	stats.absentMin = math.MaxInt32
 	for _, key := range keys {
-		l, ok := getProbeLength(t, m, key)
+		l, ok := getMapProbeLength(t, m, key)
 		if ok {
 			stats.presentCnt++
 			presentSum += float32(l)
@@ -402,26 +355,6 @@ func getProbeStats[K comparable, V any](t *testing.T, m *Map[K, V], keys []K) (s
 		stats.absentMin = 0
 	} else {
 		stats.absentAvg = absentSum / float32(stats.absentCnt)
-	}
-	return
-}
-
-func TestNumGroups(t *testing.T) {
-	assert.Equal(t, expected(0), numGroups(0))
-	assert.Equal(t, expected(1), numGroups(1))
-	// max load factor 0.875
-	assert.Equal(t, expected(14), numGroups(14))
-	assert.Equal(t, expected(15), numGroups(15))
-	assert.Equal(t, expected(28), numGroups(28))
-	assert.Equal(t, expected(29), numGroups(29))
-	assert.Equal(t, expected(56), numGroups(56))
-	assert.Equal(t, expected(57), numGroups(57))
-}
-
-func expected(x int) (groups uint32) {
-	groups = uint32(math.Ceil(float64(x) / float64(maxAvgGroupLoad)))
-	if groups == 0 {
-		groups = 1
 	}
 	return
 }

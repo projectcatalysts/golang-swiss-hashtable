@@ -1,6 +1,6 @@
-module github.com/dolthub/swiss
+module gitlab.projectcatalysts.prv/procat/golang-swiss-hashtable
 
-go 1.18
+go 1.20
 
 require (
 	github.com/dolthub/maphash v0.1.0

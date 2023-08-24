@@ -52,7 +52,7 @@ func fuzzTestStringMap(t *testing.T, keySz, init, count uint32) {
 	// make tests deterministic
 	setConstSeed(m, 1)
 
-	keys := genStringData(int(keySz), int(count))
+	keys := genStringMapData(int(keySz), int(count))
 	golden := make(map[string]int, init)
 	for i, k := range keys {
 		m.Put(k, i)

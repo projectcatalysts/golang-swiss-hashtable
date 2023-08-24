@@ -20,7 +20,7 @@ import (
 	"math/bits"
 	_ "unsafe"
 
-	"github.com/dolthub/swiss/simd"
+	"gitlab.projectcatalysts.prv/procat/golang-swiss-hashtable/simd"
 )
 
 const (
@@ -40,11 +40,12 @@ func metaMatchEmpty(m *metadata) bitset {
 	return bitset(b)
 }
 
-func nextMatch(b *bitset) (s uint32) {
-	s = uint32(bits.TrailingZeros16(uint16(*b)))
-	*b &= ^(1 << s) // clear bit |s|
+func nextMatch(bs bitset) (s uint32, newbs bitset) {
+	s = uint32(bits.TrailingZeros16(uint16(bs)))
+	newbs = bs ^ (1 << s) // clear bit |s|
 	return
 }
 
 //go:linkname fastrand runtime.fastrand
+
 func fastrand() uint32

@@ -10,7 +10,7 @@ SwissMap exposes the same interface as the built-in `map`. Give it a try using t
 ```go
 package main
 
-import "github.com/dolthub/swiss"
+import swiss "gitlab.projectcatalysts.prv/procat/golang-swiss-hashtable"
 
 func main() {
 	m := swiss.NewMap[string, int](42)
@@ -41,8 +41,6 @@ func main() {
 		x, _ := m.Get("bar")
 		println(x)
 	}
-
-	m.Clear()
 
 	// Output:
 	// iter foo 1
