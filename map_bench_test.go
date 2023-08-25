@@ -49,10 +49,10 @@ func BenchmarkInt64Maps(b *testing.B) {
 	for _, n := range sizes {
 		b.Run("n="+strconv.Itoa(n), func(b *testing.B) {
 			b.Run("runtime map", func(b *testing.B) {
-				benchmarkRuntimeMap(b, generateInt64DataMap(n))
+				benchmarkRuntimeMap(b, generateInt64MapData(n))
 			})
 			b.Run("swiss.Map", func(b *testing.B) {
-				benchmarkSwissMap(b, generateInt64DataMap(n))
+				benchmarkSwissMap(b, generateInt64MapData(n))
 			})
 		})
 	}
@@ -75,7 +75,7 @@ func TestMemoryFootprint(t *testing.T) {
 		x := float64(b1.MemBytes) / float64(b2.MemBytes)
 		samples = append(samples, x)
 	}
-	t.Logf("mean size ratio: %.3f", meanMap(samples))
+	t.Logf("mean size ratio: %.3f", mean(samples))
 }
 
 func benchmarkRuntimeMap[K comparable](b *testing.B, keys []K) {
@@ -112,7 +112,7 @@ func benchmarkSwissMap[K comparable](b *testing.B, keys []K) {
 	b.ReportAllocs()
 }
 
-func generateInt64DataMap(n int) (data []int64) {
+func generateInt64MapData(n int) (data []int64) {
 	data = make([]int64, n)
 	var x int64
 	for i := range data {
@@ -120,11 +120,4 @@ func generateInt64DataMap(n int) (data []int64) {
 		data[i] = x
 	}
 	return
-}
-
-func meanMap(samples []float64) (m float64) {
-	for _, s := range samples {
-		m += s
-	}
-	return m / float64(len(samples))
 }
