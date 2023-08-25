@@ -53,13 +53,13 @@ func BenchmarkInt64Sets(b *testing.B) {
 	sizes := []int{16, 128, 1024, 8192, 131072}
 	for _, n := range sizes {
 		b.Run("n="+strconv.Itoa(n), func(b *testing.B) {
-			b.Run("runtime map", func(b *testing.B) {
+			b.Run("runtime set", func(b *testing.B) {
 				benchmarkRuntimeMap(b, generateInt64SetData(n, hash64_Int64))
 			})
-			b.Run("swiss.Map(get)", func(b *testing.B) {
+			b.Run("swiss.Set(get)", func(b *testing.B) {
 				benchmarkSwissSetGet(b, generateInt64SetData(n, hash64_Int64))
 			})
-			b.Run("swiss.Map(has)", func(b *testing.B) {
+			b.Run("swiss.Set(has)", func(b *testing.B) {
 				benchmarkSwissSetHas(b, generateInt64SetData(n, hash64_Int64))
 			})
 		})

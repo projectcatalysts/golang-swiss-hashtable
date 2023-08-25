@@ -41,12 +41,12 @@ type mapGroup[K comparable, V any] struct {
 
 // NewMap constructs a Map.
 func NewMap[K comparable, V any](sz uint32) (m *Map[K, V]) {
-	mapGroups := numGroups(sz)
+	n := numGroups(sz)
 	m = &Map[K, V]{
-		ctrl:   make([]metadata, mapGroups),
-		groups: make([]mapGroup[K, V], mapGroups),
+		ctrl:   make([]metadata, n),
+		groups: make([]mapGroup[K, V], n),
 		hash:   maphash.NewHasher[K](),
-		limit:  mapGroups * maxAvgGroupLoad,
+		limit:  n * maxAvgGroupLoad,
 	}
 	for i := range m.ctrl {
 		m.ctrl[i] = emptyMeta
@@ -131,7 +131,6 @@ func (m *Map[K, V]) Put(key K, value V) {
 		for matches != 0 {
 			i, matches = nextMatch(matches)
 			if key == group.keys[i] { // update
-				group.keys[i] = key
 				group.values[i] = value
 				return
 			}
@@ -235,18 +234,12 @@ func (m *Map[K, V]) Iter(cb func(k K, v V) (stop bool)) {
 
 // Clear removes all elements from the Map.
 func (m *Map[K, V]) Clear() {
-	for i, c := range m.ctrl {
-		for j := range c {
-			m.ctrl[i][j] = empty
-		}
+	for i := range m.ctrl {
+		m.ctrl[i] = emptyMeta
 	}
-	var k K
-	var v V
-	for _, g := range m.groups {
-		for i := range g.keys {
-			g.keys[i] = k
-			g.values[i] = v
-		}
+	emptyGroup := mapGroup[K, V]{}
+	for i := range m.groups {
+		m.groups[i] = emptyGroup
 	}
 	m.resident, m.dead = 0, 0
 }
@@ -300,23 +293,22 @@ func (m *Map[K, V]) nextSize() (n uint32) {
 }
 
 func (m *Map[K, V]) rehash(n uint32) {
-	groups, ctrl := m.groups, m.ctrl
+	oldGroups, oldCtrl := m.groups, m.ctrl
+	m.hash = maphash.NewSeed(m.hash)
+	m.limit = n * maxAvgGroupLoad
+	m.resident, m.dead = 0, 0
 	m.groups = make([]mapGroup[K, V], n)
 	m.ctrl = make([]metadata, n)
 	for i := range m.ctrl {
 		m.ctrl[i] = emptyMeta
 	}
-	m.hash = maphash.NewSeed(m.hash)
-	m.limit = n * maxAvgGroupLoad
-	m.resident, m.dead = 0, 0
-	for g := range ctrl {
-		group := groups[g]
-		for i := range ctrl[g] {
-			c := ctrl[g][i]
+	for c, oldCtrl := range oldCtrl {
+		oldGroup := &oldGroups[c]
+		for i, c := range oldCtrl {
 			if c == empty || c == tombstone {
 				continue
 			}
-			m.Put(group.keys[i], group.values[i])
+			m.Put(oldGroup.keys[i], oldGroup.values[i])
 		}
 	}
 }

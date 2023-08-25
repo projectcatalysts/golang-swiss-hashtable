@@ -22,25 +22,25 @@ package swiss
 // to provide thier own hash.  It also incorporates several small performance optimisations.
 type Set[V comparable] struct {
 	ctrl     []metadata
-	groups   []group[V]
+	groups   []setGroup[V]
 	resident uint32
 	dead     uint32
 	limit    uint32
 }
 
-// group is a group of 16 hash-value pairs
-type group[V comparable] struct {
+// setGroup is a group of 16 hash-value pairs
+type setGroup[V comparable] struct {
 	hashes [groupSize]Hash
 	values [groupSize]V
 }
 
 // NewSet constructs a Set.
 func NewSet[V comparable](sz uint32) (s *Set[V]) {
-	groups := numGroups(sz)
+	n := numGroups(sz)
 	s = &Set[V]{
-		ctrl:   make([]metadata, groups),
-		groups: make([]group[V], groups),
-		limit:  groups * maxAvgGroupLoad,
+		ctrl:   make([]metadata, n),
+		groups: make([]setGroup[V], n),
+		limit:  n * maxAvgGroupLoad,
 	}
 	for i := range s.ctrl {
 		s.ctrl[i] = emptyMeta
@@ -264,18 +264,12 @@ func (s *Set[V]) Iter(cb func(h Hash, v V) (stop bool)) {
 
 // Clear removes all elements from the Map.
 func (s *Set[V]) Clear() {
-	for i, c := range s.ctrl {
-		for j := range c {
-			s.ctrl[i][j] = empty
-		}
+	for i := range s.ctrl {
+		s.ctrl[i] = emptyMeta
 	}
-	var h Hash
-	var v V
-	for _, g := range s.groups {
-		for i := range g.hashes {
-			g.hashes[i] = h
-			g.values[i] = v
-		}
+	emptyGroup := setGroup[V]{}
+	for i := range s.groups {
+		s.groups[i] = emptyGroup
 	}
 	s.resident, s.dead = 0, 0
 }
@@ -330,25 +324,24 @@ func (s *Set[V]) nextSize() (n uint32) {
 }
 
 func (s *Set[V]) resize(n uint32) {
-	groups, ctrl := s.groups, s.ctrl
-	s.groups = make([]group[V], n)
+	oldGroups, oldCtrl := s.groups, s.ctrl
+	s.limit = n * maxAvgGroupLoad
+	s.resident, s.dead = 0, 0
 	s.ctrl = make([]metadata, n)
+	s.groups = make([]setGroup[V], n)
 	for i := range s.ctrl {
 		s.ctrl[i] = emptyMeta
 	}
 	// It is considered best practice to rehash / change seed during a resize, however
 	// we need to retain what we have been given as this container is not responsible
 	// for creating the hashes.
-	s.limit = n * maxAvgGroupLoad
-	s.resident, s.dead = 0, 0
-	for g := range ctrl {
-		group := groups[g]
-		for i := range ctrl[g] {
-			c := ctrl[g][i]
+	for c, oldCtrl := range oldCtrl {
+		oldGroup := &oldGroups[c]
+		for i, c := range oldCtrl {
 			if c == empty || c == tombstone {
 				continue
 			}
-			s.Put(group.hashes[i], group.values[i])
+			s.Put(oldGroup.hashes[i], oldGroup.values[i])
 		}
 	}
 }
