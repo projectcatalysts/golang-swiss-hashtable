@@ -14,7 +14,12 @@
 // limitations under the License.
 
 // This version incorporates several small performance optimisations
-// introduced by Project Catalysts under the same Apache License, Version 2.0.
+// introduced by Project Catalysts under the same Apache License, Version 2.0,
+// bug fixes and optimisation of the Clear and Iterator method, plus
+// functional enhancements including:
+// - GetKeys
+// - GetValues
+// - GetPairs
 
 package swiss
 
@@ -31,6 +36,12 @@ type Map[K comparable, V any] struct {
 	resident uint32
 	dead     uint32
 	limit    uint32
+}
+
+// MapPair is a key and value pair.
+type MapPair[K comparable, V any] struct {
+	Key   K
+	Value V
 }
 
 // mapGroup is a mapGroup of 16 key-value pairs
@@ -113,6 +124,96 @@ func (m *Map[K, V]) Get(key K) (value V, ok bool) {
 			g = 0
 		}
 	}
+}
+
+// GetKeys returns the set of all keys.  There will be no duplicates.
+func (m *Map[K, V]) GetKeys() []K {
+	keys := make([]K, m.Count())
+	keysIndex := uint(0)
+
+	// pick a random starting group
+	g := randIntN(len(m.groups))
+	lastGroupIndex := uint32(len(m.groups))
+	for n := 0; n < len(m.groups); n++ {
+		group := &m.groups[g]
+		for i, c := range m.ctrl[g] {
+			if c == tombstone {
+				continue
+			}
+			if c == empty {
+				// No more hashes in this group
+				break
+			}
+			keys[keysIndex] = group.keys[i]
+			keysIndex++
+		}
+		g++
+		if g >= lastGroupIndex {
+			g = 0
+		}
+	}
+
+	return keys
+}
+
+// GetValues returns the set of all values.  There may be duplicates.
+func (m *Map[K, V]) GetValues() []V {
+	values := make([]V, m.Count())
+	valueIndex := uint(0)
+
+	// pick a random starting group
+	g := randIntN(len(m.groups))
+	lastGroupIndex := uint32(len(m.groups))
+	for n := 0; n < len(m.groups); n++ {
+		group := &m.groups[g]
+		for i, c := range m.ctrl[g] {
+			if c == tombstone {
+				continue
+			}
+			if c == empty {
+				// No more hashes in this group
+				break
+			}
+			values[valueIndex] = group.values[i]
+			valueIndex++
+		}
+		g++
+		if g >= lastGroupIndex {
+			g = 0
+		}
+	}
+
+	return values
+}
+
+// GetPairs returns the set of all hash and value pairs.  Each pair is unique.
+func (m *Map[K, V]) GetPairs() []MapPair[K, V] {
+	pairs := make([]MapPair[K, V], m.Count())
+	pairIndex := uint(0)
+
+	// pick a random starting group
+	g := randIntN(len(m.groups))
+	lastGroupIndex := uint32(len(m.groups))
+	for n := 0; n < len(m.groups); n++ {
+		group := &m.groups[g]
+		for i, c := range m.ctrl[g] {
+			if c == tombstone {
+				continue
+			}
+			if c == empty {
+				// No more entries in this group
+				break
+			}
+			pairs[pairIndex] = MapPair[K, V]{group.keys[i], group.values[i]}
+			pairIndex++
+		}
+		g++
+		if g >= lastGroupIndex {
+			g = 0
+		}
+	}
+
+	return pairs
 }
 
 // Put attempts to insert |key| and |value|

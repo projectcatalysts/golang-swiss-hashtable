@@ -28,7 +28,13 @@ type Set[V comparable] struct {
 	limit    uint32
 }
 
-// setGroup is a group of 16 hash-value pairs
+// SetPair is a hash and value pair.
+type SetPair[V comparable] struct {
+	Hash  Hash
+	Value V
+}
+
+// setGroup is a group of 16 hash-value pairs.
 type setGroup[V comparable] struct {
 	hashes [groupSize]Hash
 	values [groupSize]V
@@ -131,7 +137,6 @@ func (s *Set[V]) Get(hash Hash, values *[]V) (valueCount uint) {
 			if hash == group.hashes[i] {
 				*values = append(*values, group.values[i])
 				valueCount++
-				return
 			}
 		}
 		// |hash| may or may not be in group |g|,
@@ -145,6 +150,96 @@ func (s *Set[V]) Get(hash Hash, values *[]V) (valueCount uint) {
 			g = 0
 		}
 	}
+}
+
+// GetHashes returns the set of all hashes.  There may be duplicates.
+func (s *Set[V]) GetHashes() []Hash {
+	hashes := make([]Hash, s.Count())
+	hashIndex := uint(0)
+
+	// pick a random starting group
+	g := randIntN(len(s.groups))
+	lastGroupIndex := uint32(len(s.groups))
+	for n := 0; n < len(s.groups); n++ {
+		group := &s.groups[g]
+		for i, c := range s.ctrl[g] {
+			if c == tombstone {
+				continue
+			}
+			if c == empty {
+				// No more hashes in this group
+				break
+			}
+			hashes[hashIndex] = group.hashes[i]
+			hashIndex++
+		}
+		g++
+		if g >= lastGroupIndex {
+			g = 0
+		}
+	}
+
+	return hashes
+}
+
+// GetValues returns the set of all values.  There may be duplicates.
+func (s *Set[V]) GetValues() []V {
+	values := make([]V, s.Count())
+	valueIndex := uint(0)
+
+	// pick a random starting group
+	g := randIntN(len(s.groups))
+	lastGroupIndex := uint32(len(s.groups))
+	for n := 0; n < len(s.groups); n++ {
+		group := &s.groups[g]
+		for i, c := range s.ctrl[g] {
+			if c == tombstone {
+				continue
+			}
+			if c == empty {
+				// No more hashes in this group
+				break
+			}
+			values[valueIndex] = group.values[i]
+			valueIndex++
+		}
+		g++
+		if g >= lastGroupIndex {
+			g = 0
+		}
+	}
+
+	return values
+}
+
+// GetPairs returns the set of all hash and value pairs.  Each pair is unique.
+func (s *Set[V]) GetPairs() []SetPair[V] {
+	pairs := make([]SetPair[V], s.Count())
+	pairIndex := uint(0)
+
+	// pick a random starting group
+	g := randIntN(len(s.groups))
+	lastGroupIndex := uint32(len(s.groups))
+	for n := 0; n < len(s.groups); n++ {
+		group := &s.groups[g]
+		for i, c := range s.ctrl[g] {
+			if c == tombstone {
+				continue
+			}
+			if c == empty {
+				// No more entries in this group
+				break
+			}
+			pairs[pairIndex] = SetPair[V]{group.hashes[i], group.values[i]}
+			pairIndex++
+		}
+		g++
+		if g >= lastGroupIndex {
+			g = 0
+		}
+	}
+
+	return pairs
 }
 
 // Put attempts to insert |hash| and |value|
@@ -260,6 +355,15 @@ func (s *Set[V]) Iter(cb func(h Hash, v V) (stop bool)) {
 			g = 0
 		}
 	}
+}
+
+// Destruct resets the set to a zero'd state
+func (s *Set[V]) Destruct() {
+	s.ctrl = nil
+	s.groups = nil
+	s.resident = 0
+	s.dead = 0
+	s.limit = 0
 }
 
 // Clear removes all elements from the Map.
