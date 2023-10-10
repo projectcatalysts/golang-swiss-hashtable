@@ -67,9 +67,10 @@ func fuzzTestStringSet(t *testing.T, keySz, init, count uint32) {
 	assert.Equal(t, uint(len(golden)), m.Count())
 
 	foundStorage := [1]string{}
+	var foundCount uint
+	var found []string
 	for h, v := range golden {
-		found := foundStorage[:0]
-		foundCount := m.Get(h, &found)
+		found, foundCount = m.Get(h, foundStorage[:0])
 		assert.Equal(t, uint(1), foundCount)
 		assert.Equal(t, v, found[0])
 	}
@@ -90,8 +91,7 @@ func fuzzTestStringSet(t *testing.T, keySz, init, count uint32) {
 		assert.False(t, m.Has(v.hash, v.value))
 	}
 	for h, v := range golden {
-		found := foundStorage[:0]
-		foundCount := m.Get(h, &found)
+		found, foundCount = m.Get(h, found[:0])
 		assert.Equal(t, uint(1), foundCount)
 		assert.Equal(t, v, found[0])
 	}

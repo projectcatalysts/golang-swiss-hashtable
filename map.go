@@ -350,9 +350,15 @@ func (m *Map[K, V]) Count() int {
 	return int(m.resident - m.dead)
 }
 
-// Capacity returns the number of additional elements
+// Capacity returns the total number of items that can
 // the can be added to the Map before resizing.
 func (m *Map[K, V]) Capacity() int {
+	return int(m.limit)
+}
+
+// UnusedCapacity returns the number of additional elements
+// the can be added to the Map before resizing.
+func (m *Map[K, V]) UnusedCapacity() int {
 	return int(m.limit - m.resident)
 }
 

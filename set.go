@@ -123,7 +123,8 @@ func (s *Set[V]) Has(hash Hash, value V) (ok bool) {
 }
 
 // Get returns the |value|s mapped by |hash|.
-func (s *Set[V]) Get(hash Hash, values *[]V) (valueCount uint) {
+func (s *Set[V]) Get(hash Hash, valueStorage []V) (values []V, valueCount uint) {
+	values = valueStorage
 	hi, lo := splitHash(hash)
 	g := probeStart(hi, len(s.groups))
 	var i uint32
@@ -135,7 +136,7 @@ func (s *Set[V]) Get(hash Hash, values *[]V) (valueCount uint) {
 			group := &s.groups[g]
 			i, matches = nextMatch(matches)
 			if hash == group.hashes[i] {
-				*values = append(*values, group.values[i])
+				values = append(values, group.values[i])
 				valueCount++
 			}
 		}
@@ -383,9 +384,15 @@ func (s *Set[V]) Count() uint {
 	return uint(s.resident - s.dead)
 }
 
-// Capacity returns the number of additional elements
+// Capacity returns the total number of items that can
 // the can be added to the Map before resizing.
 func (s *Set[V]) Capacity() uint {
+	return uint(s.limit)
+}
+
+// UnusedCapacity returns the number of additional elements
+// the can be added to the Map before resizing.
+func (s *Set[V]) UnusedCapacity() uint {
 	return uint(s.limit - s.resident)
 }
 

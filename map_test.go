@@ -276,13 +276,13 @@ func testSwissMapCapacity[K comparable](t *testing.T, gen func(n int) []K) {
 	}
 	for _, c := range caps {
 		m := NewMap[K, K](c)
-		assert.Equal(t, int(c), m.Capacity())
+		assert.Equal(t, int(c), m.UnusedCapacity())
 		keys := gen(rand.Intn(int(c)))
 		for _, k := range keys {
 			m.Put(k, k)
 		}
-		assert.Equal(t, int(c)-len(keys), m.Capacity())
-		assert.Equal(t, int(c), m.Count()+m.Capacity())
+		assert.Equal(t, int(c)-len(keys), m.UnusedCapacity())
+		assert.Equal(t, int(c), m.Count()+m.UnusedCapacity())
 	}
 }
 

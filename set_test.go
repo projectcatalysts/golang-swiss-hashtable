@@ -201,9 +201,10 @@ func testSetPut[V comparable](t *testing.T, values []hashAndValue[V]) {
 	assert.Equal(t, uint(len(values)), s.Count())
 	// check that the values can be retrieved
 	foundStorage := [1]V{}
+	var foundCount uint
+	var found []V
 	for _, v := range values {
-		found := foundStorage[:0]
-		foundCount := s.Get(v.hash, &found)
+		found, foundCount = s.Get(v.hash, foundStorage[:0])
 		assert.Equal(t, foundCount, uint(1))
 		assert.Equal(t, found[0], v.value)
 	}
@@ -240,9 +241,10 @@ func testSetGet[V comparable](t *testing.T, values []hashAndValue[V]) {
 		s.Put(v.hash, v.value)
 	}
 	foundStorage := [1]V{}
+	var foundCount uint
+	var found []V
 	for _, v := range values {
-		found := foundStorage[:0]
-		foundCount := s.Get(v.hash, &found)
+		found, foundCount = s.Get(v.hash, foundStorage[:0])
 		assert.Equal(t, foundCount, uint(1))
 		assert.Equal(t, found[0], v.value)
 	}
@@ -259,11 +261,10 @@ func testSetDelete[V comparable](t *testing.T, values []hashAndValue[V]) {
 	assert.Equal(t, uint(len(values)), s.Count())
 	foundStorage := [1]V{}
 	for _, v := range values {
-		found := foundStorage[:0]
-		foundCount1 := s.Get(v.hash, &found)
+		_, foundCount1 := s.Get(v.hash, foundStorage[:0])
 		isDeleted := s.Delete(v.hash, v.value)
 		assert.True(t, isDeleted)
-		foundCount2 := s.Get(v.hash, &found)
+		_, foundCount2 := s.Get(v.hash, foundStorage[:0])
 		assert.Equal(t, foundCount1-1, foundCount2)
 	}
 	assert.Equal(t, uint(0), s.Count())
@@ -296,8 +297,7 @@ func testSetClear[V comparable](t *testing.T, values []hashAndValue[V]) {
 	for _, v := range values {
 		ok := s.Has(v.hash, v.value)
 		assert.False(t, ok)
-		found := foundStorage[:0]
-		foundCount := s.Get(v.hash, &found)
+		_, foundCount := s.Get(v.hash, foundStorage[:0])
 		assert.Equal(t, foundCount, uint(0))
 	}
 	var calls int
@@ -352,8 +352,7 @@ func testSetIter[V comparable](t *testing.T, values []hashAndValue[V]) {
 	})
 	foundStorage := [1]V{}
 	for _, v := range values {
-		found := foundStorage[:0]
-		foundCount := s.Get(v.hash, &found)
+		found, foundCount := s.Get(v.hash, foundStorage[:0])
 		assert.Equal(t, foundCount, uint(1))
 		assert.Equal(t, found[0], v.value)
 	}
@@ -367,9 +366,10 @@ func testSetGrow[V comparable](t *testing.T, values []hashAndValue[V]) {
 	for _, v := range values {
 		s.Put(v.hash, v.value)
 	}
+	found := make([]V, 0, 1)
+	var foundCount uint
 	for _, v := range values {
-		found := make([]V, 0, 1)
-		foundCount := s.Get(v.hash, &found)
+		found, foundCount = s.Get(v.hash, found[:0])
 		assert.Equal(t, foundCount, uint(1))
 		assert.Equal(t, found[0], v.value)
 	}
@@ -391,13 +391,13 @@ func testSwissSetCapacity[V comparable](t *testing.T, gen func(n int) []hashAndV
 	}
 	for _, c := range caps {
 		s := NewSet[V](c)
-		assert.Equal(t, uint(c), s.Capacity())
+		assert.Equal(t, uint(c), uint(s.UnusedCapacity()))
 		values := gen(rand.Intn(int(c)))
 		for _, v := range values {
 			s.Put(v.hash, v.value)
 		}
-		assert.Equal(t, uint(c)-uint(len(values)), s.Capacity())
-		assert.Equal(t, uint(c), s.Count()+s.Capacity())
+		assert.Equal(t, uint(c)-uint(len(values)), uint(s.UnusedCapacity()))
+		assert.Equal(t, uint(c), s.Count()+uint(s.UnusedCapacity()))
 	}
 }
 

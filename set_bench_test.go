@@ -116,8 +116,7 @@ func benchmarkSwissSetGet[V comparable](b *testing.B, values []hashAndValue[V]) 
 	b.ReportAllocs()
 	var foundCount uint
 	for i := 0; i < b.N; i++ {
-		found := foundStorage[:0]
-		foundCount = m.Get(values[uint32(i)&mod].hash, &found)
+		_, foundCount = m.Get(values[uint32(i)&mod].hash, foundStorage[:0])
 	}
 	assert.Equal(b, uint(1), foundCount)
 }
