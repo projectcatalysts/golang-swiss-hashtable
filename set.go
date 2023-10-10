@@ -153,6 +153,32 @@ func (s *Set[V]) Get(hash Hash, valueStorage []V) (values []V, valueCount uint) 
 	}
 }
 
+type HashIterator func(hash Hash)
+
+// GetHashes returns the set of all hashes.  There may be duplicates.
+func (s *Set[V]) Iterate(callback HashIterator) {
+	// pick a random starting group
+	g := randIntN(len(s.groups))
+	lastGroupIndex := uint32(len(s.groups))
+	for n := 0; n < len(s.groups); n++ {
+		group := &s.groups[g]
+		for i, c := range s.ctrl[g] {
+			if c == tombstone {
+				continue
+			}
+			if c == empty {
+				// No more hashes in this group
+				break
+			}
+			callback(group.hashes[i])
+		}
+		g++
+		if g >= lastGroupIndex {
+			g = 0
+		}
+	}
+}
+
 // GetHashes returns the set of all hashes.  There may be duplicates.
 func (s *Set[V]) GetHashes() []Hash {
 	hashes := make([]Hash, s.Count())
