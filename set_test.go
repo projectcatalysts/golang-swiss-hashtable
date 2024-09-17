@@ -425,12 +425,14 @@ func testSetProbeStats[V comparable](t *testing.T, values []hashAndValue[V]) {
 }
 
 func getSetProbeLength[V comparable](t *testing.T, s *Set[V], hash Hash, value V) (length uint32, ok bool) {
-	var end uint32
-	hi, _ := splitHash(hash)
-	start := probeStart(hi, len(s.groups))
+	var (
+		end   uint32
+		hi, _ = splitHash(hash)
+		start = probeStart(hi, s.groupCount)
+	)
 	end, _, ok = s.find(hash, value)
 	if end < start { // wrapped
-		end += uint32(len(s.groups))
+		end += s.groupCount
 	}
 	length = (end - start) + 1
 	require.True(t, length > 0)
@@ -438,7 +440,7 @@ func getSetProbeLength[V comparable](t *testing.T, s *Set[V], hash Hash, value V
 }
 
 func getSetProbeStats[V comparable](t *testing.T, s *Set[V], values []hashAndValue[V]) (stats probeStats) {
-	stats.groups = uint32(len(s.groups))
+	stats.groups = s.groupCount
 	stats.loadFactor = s.loadFactor()
 	var presentSum, absentSum float32
 	stats.presentMin = math.MaxInt32

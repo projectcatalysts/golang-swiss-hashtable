@@ -21,11 +21,13 @@ package swiss
 // Set incorporates significant to work as a set rather than as a map, and requires callers
 // to provide thier own hash.  It also incorporates several small performance optimisations.
 type Set[V comparable] struct {
-	ctrl     []metadata
-	groups   []setGroup[V]
-	resident uint32
-	dead     uint32
-	limit    uint32
+	meta       []int8
+	hashes     []Hash
+	values     []V
+	groupCount uint32
+	resident   uint32
+	dead       uint32
+	limit      uint32
 }
 
 // SetPair is a hash and value pair.
@@ -42,50 +44,59 @@ type setGroup[V comparable] struct {
 
 // NewSet constructs a Set.
 func NewSet[V comparable](sz uint32) (s *Set[V]) {
-	n := numGroups(sz)
+	var (
+		groupCount = numGroups(sz)
+		capacity   = (groupCount << groupBits) // groupCount * groupSize
+	)
 	s = &Set[V]{
-		ctrl:   make([]metadata, n),
-		groups: make([]setGroup[V], n),
-		limit:  n * maxAvgGroupLoad,
+		meta:       make([]int8, capacity),
+		hashes:     make([]Hash, capacity),
+		values:     make([]V, capacity),
+		groupCount: groupCount,
+		limit:      groupCount * maxAvgGroupLoad,
 	}
-	for i := range s.ctrl {
-		s.ctrl[i] = emptyMeta
+	for i := range s.meta {
+		s.meta[i] = empty
 	}
 	return
 }
 
 // Has returns true if |hash| is present in |s|.
 func (s *Set[V]) HasHash(hash Hash) (ok bool) {
-	hi, lo := splitHash(hash)
 	// g is the index of the group to start, identified by the remainder
 	// from dividing the hash by the number of groups.  Starting with this
 	// group, the the lower bits from the hash (H2) are checked for existence
 	// within the group using a 16-way SSE instruction.  If there is a match,
 	// each matching entry in the group is then checked to see if the remainder
 	// of the hash matches what we are looking for.
-	g := probeStart(hi, len(s.groups))
-	var i uint32
-	lastGroupIndex := uint32(len(s.groups))
+	var (
+		groupCount = s.groupCount
+		hi, lo     = splitHash(hash)
+		g          = probeStart(hi, groupCount)
+		i          uint32
+	)
 	for { // inlined find loop
-		ctrl := &s.ctrl[g]
-		matches := metaMatchH2(ctrl, lo)
+		var (
+			groupMeta = (*groupMetadata)(s.meta[g<<groupBits:])
+			matches   = metaMatchH2(groupMeta, lo)
+		)
 		for matches != 0 {
-			group := &s.groups[g]
+			hashes := (*groupHashes)(s.hashes[g<<groupBits:])
 			i, matches = nextMatch(matches)
-			if hash == group.hashes[i] {
+			if hash == hashes[i] {
 				ok = true
 				return
 			}
 		}
 		// |hash| is not in group |g|,
 		// stop probing if we see an empty slot
-		matches = metaMatchEmpty(ctrl)
+		matches = metaMatchEmpty(groupMeta)
 		if matches != 0 {
 			ok = false
 			return
 		}
 		g += 1 // linear probing
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -93,30 +104,35 @@ func (s *Set[V]) HasHash(hash Hash) (ok bool) {
 
 // Has returns true if |hash| and |value| is present in |s|.
 func (s *Set[V]) Has(hash Hash, value V) (ok bool) {
-	hi, lo := splitHash(hash)
-	g := probeStart(hi, len(s.groups))
-	var i uint32
-	lastGroupIndex := uint32(len(s.groups))
+	var (
+		groupCount = s.groupCount
+		hi, lo     = splitHash(hash)
+		g          = probeStart(hi, groupCount)
+		i          uint32
+	)
 	for { // inlined find loop
-		ctrl := &s.ctrl[g]
-		matches := metaMatchH2(ctrl, lo)
+		var (
+			groupOffset = g << groupBits
+			groupMeta   = (*groupMetadata)(s.meta[groupOffset:])
+			groupHashes = (*groupHashes)(s.hashes[groupOffset:])
+			matches     = metaMatchH2(groupMeta, lo)
+		)
 		for matches != 0 {
-			group := &s.groups[g]
 			i, matches = nextMatch(matches)
-			if hash == group.hashes[i] && value == group.values[i] {
+			if hash == groupHashes[i] && value == s.values[groupOffset+i] {
 				ok = true
 				return
 			}
 		}
 		// |hash|value| is not in group |g|,
 		// stop probing if we see an empty slot
-		matches = metaMatchEmpty(ctrl)
+		matches = metaMatchEmpty(groupMeta)
 		if matches != 0 {
 			ok = false
 			return
 		}
 		g += 1 // linear probing
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -125,29 +141,34 @@ func (s *Set[V]) Has(hash Hash, value V) (ok bool) {
 // Get returns the |value|s mapped by |hash|.
 func (s *Set[V]) Get(hash Hash, valueStorage []V) (values []V, valueCount uint) {
 	values = valueStorage
-	hi, lo := splitHash(hash)
-	g := probeStart(hi, len(s.groups))
-	var i uint32
-	lastGroupIndex := uint32(len(s.groups))
+	var (
+		groupCount = s.groupCount
+		hi, lo     = splitHash(hash)
+		g          = probeStart(hi, groupCount)
+		i          uint32
+	)
 	for { // inlined find loop
-		ctrl := &s.ctrl[g]
-		matches := metaMatchH2(ctrl, lo)
+		var (
+			groupStart  = g << groupBits
+			groupMeta   = (*groupMetadata)(s.meta[groupStart:])
+			groupHashes = (*groupHashes)(s.hashes[groupStart:])
+			matches     = metaMatchH2(groupMeta, lo)
+		)
 		for matches != 0 {
-			group := &s.groups[g]
 			i, matches = nextMatch(matches)
-			if hash == group.hashes[i] {
-				values = append(values, group.values[i])
+			if hash == groupHashes[i] {
+				values = append(values, s.values[groupStart+i])
 				valueCount++
 			}
 		}
 		// |hash| may or may not be in group |g|,
 		// stop probing if we see an empty slot
-		matches = metaMatchEmpty(ctrl)
+		matches = metaMatchEmpty(groupMeta)
 		if matches != 0 {
 			return
 		}
 		g += 1 // linear probing
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -155,14 +176,19 @@ func (s *Set[V]) Get(hash Hash, valueStorage []V) (values []V, valueCount uint) 
 
 type HashIterator func(hash Hash)
 
-// GetHashes returns the set of all hashes.  There may be duplicates.
-func (s *Set[V]) Iterate(callback HashIterator) {
-	// pick a random starting group
-	g := randIntN(len(s.groups))
-	lastGroupIndex := uint32(len(s.groups))
-	for n := 0; n < len(s.groups); n++ {
-		group := &s.groups[g]
-		for i, c := range s.ctrl[g] {
+// IterateHashes returns the set of all hashes.  There may be duplicates.
+func (s *Set[V]) IterateHashes(callback HashIterator) {
+	var (
+		groupCount = s.groupCount
+		g          = randIntN(groupCount) // pick a random starting group
+	)
+	for n := uint32(0); n < groupCount; n++ {
+		var (
+			groupOffset = g << groupBits
+			groupMeta   = (*groupMetadata)(s.meta[groupOffset:])
+			groupHashes = (*groupHashes)(s.hashes[groupOffset:])
+		)
+		for i, c := range groupMeta {
 			if c == tombstone {
 				continue
 			}
@@ -170,10 +196,10 @@ func (s *Set[V]) Iterate(callback HashIterator) {
 				// No more hashes in this group
 				break
 			}
-			callback(group.hashes[i])
+			callback(groupHashes[i])
 		}
 		g++
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -181,15 +207,19 @@ func (s *Set[V]) Iterate(callback HashIterator) {
 
 // GetHashes returns the set of all hashes.  There may be duplicates.
 func (s *Set[V]) GetHashes() []Hash {
-	hashes := make([]Hash, s.Count())
-	hashIndex := uint(0)
-
-	// pick a random starting group
-	g := randIntN(len(s.groups))
-	lastGroupIndex := uint32(len(s.groups))
-	for n := 0; n < len(s.groups); n++ {
-		group := &s.groups[g]
-		for i, c := range s.ctrl[g] {
+	var (
+		groupCount = s.groupCount
+		hashes     = make([]Hash, s.Count())
+		g          = randIntN(groupCount) // pick a random starting group
+		hashIndex  = uint(0)
+	)
+	for n := uint32(0); n < groupCount; n++ {
+		var (
+			groupOffset = g << groupBits
+			groupMeta   = (*groupMetadata)(s.meta[groupOffset:])
+			groupHashes = (*groupHashes)(s.hashes[groupOffset:])
+		)
+		for i, c := range groupMeta {
 			if c == tombstone {
 				continue
 			}
@@ -197,11 +227,11 @@ func (s *Set[V]) GetHashes() []Hash {
 				// No more hashes in this group
 				break
 			}
-			hashes[hashIndex] = group.hashes[i]
+			hashes[hashIndex] = groupHashes[i]
 			hashIndex++
 		}
 		g++
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -211,15 +241,18 @@ func (s *Set[V]) GetHashes() []Hash {
 
 // GetValues returns the set of all values.  There may be duplicates.
 func (s *Set[V]) GetValues() []V {
-	values := make([]V, s.Count())
-	valueIndex := uint(0)
-
-	// pick a random starting group
-	g := randIntN(len(s.groups))
-	lastGroupIndex := uint32(len(s.groups))
-	for n := 0; n < len(s.groups); n++ {
-		group := &s.groups[g]
-		for i, c := range s.ctrl[g] {
+	var (
+		groupCount = s.groupCount
+		values     = make([]V, s.Count())
+		g          = randIntN(groupCount) // pick a random starting group
+		valueIndex = uint(0)
+	)
+	for n := uint32(0); n < groupCount; n++ {
+		var (
+			groupOffset = int(g) << groupBits
+			groupMeta   = (*groupMetadata)(s.meta[groupOffset:])
+		)
+		for i, c := range groupMeta {
 			if c == tombstone {
 				continue
 			}
@@ -227,11 +260,11 @@ func (s *Set[V]) GetValues() []V {
 				// No more hashes in this group
 				break
 			}
-			values[valueIndex] = group.values[i]
+			values[valueIndex] = s.values[groupOffset+i]
 			valueIndex++
 		}
 		g++
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -241,15 +274,19 @@ func (s *Set[V]) GetValues() []V {
 
 // GetPairs returns the set of all hash and value pairs.  Each pair is unique.
 func (s *Set[V]) GetPairs() []SetPair[V] {
-	pairs := make([]SetPair[V], s.Count())
-	pairIndex := uint(0)
-
-	// pick a random starting group
-	g := randIntN(len(s.groups))
-	lastGroupIndex := uint32(len(s.groups))
-	for n := 0; n < len(s.groups); n++ {
-		group := &s.groups[g]
-		for i, c := range s.ctrl[g] {
+	var (
+		groupCount = s.groupCount
+		pairs      = make([]SetPair[V], s.Count())
+		pairIndex  = uint(0)
+		g          = randIntN(groupCount) // pick a random starting group
+	)
+	for n := uint32(0); n < groupCount; n++ {
+		var (
+			groupOffset = int(g) << groupBits
+			groupMeta   = (*groupMetadata)(s.meta[groupOffset:])
+			groupHashes = (*groupHashes)(s.hashes[groupOffset:])
+		)
+		for i, c := range groupMeta {
 			if c == tombstone {
 				continue
 			}
@@ -257,11 +294,11 @@ func (s *Set[V]) GetPairs() []SetPair[V] {
 				// No more entries in this group
 				break
 			}
-			pairs[pairIndex] = SetPair[V]{group.hashes[i], group.values[i]}
+			pairs[pairIndex] = SetPair[V]{groupHashes[i], s.values[groupOffset+i]}
 			pairIndex++
 		}
 		g++
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -274,33 +311,38 @@ func (s *Set[V]) Put(hash Hash, value V) {
 	if s.resident >= s.limit {
 		s.resize(s.nextSize())
 	}
-	hi, lo := splitHash(hash)
-	g := probeStart(hi, len(s.groups))
-	var i uint32
-	lastGroupIndex := uint32(len(s.groups))
+	var (
+		groupCount = s.groupCount
+		hi, lo     = splitHash(hash)
+		g          = probeStart(hi, groupCount)
+		i          uint32
+	)
 	for { // inlined find loop
-		ctrl := &s.ctrl[g]
-		group := &s.groups[g]
-		matches := metaMatchH2(ctrl, lo)
+		var (
+			groupOffset = g << groupBits
+			groupMeta   = (*groupMetadata)(s.meta[groupOffset:])
+			groupHashes = (*groupHashes)(s.hashes[groupOffset:])
+			matches     = metaMatchH2(groupMeta, lo)
+		)
 		for matches != 0 {
 			i, matches = nextMatch(matches)
-			if hash == group.hashes[i] && value == group.values[i] {
+			if hash == groupHashes[i] && value == s.values[groupOffset+i] {
 				// Hash / value pair exists
 				return
 			}
 		}
 		// |hash|value| is not in group |g|, stop probing if we see an empty slot
-		matches = metaMatchEmpty(ctrl)
+		matches = metaMatchEmpty(groupMeta)
 		if matches != 0 { // insert
 			i, _ = nextMatch(matches)
-			group.hashes[i] = hash
-			group.values[i] = value
-			ctrl[i] = int8(lo)
+			groupHashes[i] = hash
+			s.values[groupOffset+i] = value
+			groupMeta[i] = int8(lo)
 			s.resident++
 			return
 		}
 		g += 1 // linear probing
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -308,17 +350,22 @@ func (s *Set[V]) Put(hash Hash, value V) {
 
 // Delete attempts to remove |hash| and |value|, returns true successful.
 func (s *Set[V]) Delete(hash Hash, value V) (ok bool) {
-	hi, lo := splitHash(hash)
-	g := probeStart(hi, len(s.groups))
-	var i uint32
-	lastGroupIndex := uint32(len(s.groups))
+	var (
+		groupCount = s.groupCount
+		hi, lo     = splitHash(hash)
+		g          = probeStart(hi, groupCount)
+		i          uint32
+	)
 	for {
-		ctrl := &s.ctrl[g]
-		group := &s.groups[g]
-		matches := metaMatchH2(ctrl, lo)
+		var (
+			groupOffset = g << groupBits
+			groupMeta   = (*groupMetadata)(s.meta[groupOffset:])
+			groupHashes = (*groupHashes)(s.hashes[groupOffset:])
+			matches     = metaMatchH2(groupMeta, lo)
+		)
 		for matches != 0 {
 			i, matches = nextMatch(matches)
-			if hash == group.hashes[i] && value == group.values[i] {
+			if hash == groupHashes[i] && value == s.values[groupOffset+i] {
 				ok = true
 				// optimization: if |s.ctrl[g]| contains any empty
 				// metadata bytes, we can physically delete |key|
@@ -327,29 +374,29 @@ func (s *Set[V]) Delete(hash Hash, value V) (ok bool) {
 				// would already be terminated by the existing empty
 				// slot, and therefore reclaiming slot |s| will not
 				// cause premature termination of probes into |g|.
-				if metaMatchEmpty(ctrl) != 0 {
-					ctrl[i] = empty
+				if metaMatchEmpty(groupMeta) != 0 {
+					groupMeta[i] = empty
 					s.resident--
 				} else {
-					ctrl[i] = tombstone
+					groupMeta[i] = tombstone
 					s.dead++
 				}
 				var h Hash
 				var v V
-				group.hashes[i] = h
-				group.values[i] = v
+				groupHashes[i] = h
+				s.values[groupOffset+i] = v
 				return
 			}
 		}
 		// |hash|value| is not in group |g|,
 		// stop probing if we see an empty slot
-		matches = metaMatchEmpty(ctrl)
+		matches = metaMatchEmpty(groupMeta)
 		if matches != 0 { // |hash|value| absent
 			ok = false
 			return
 		}
 		g += 1 // linear probing
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -362,23 +409,27 @@ func (s *Set[V]) Delete(hash Hash, value V) (ok bool) {
 // Iter, but the set of keys visited by Iter is non-deterministic.
 func (s *Set[V]) Iter(cb func(h Hash, v V) (stop bool)) {
 	// take a consistent view of the table in case we rehash during iteration
-	ctrl, groups := s.ctrl, s.groups
-	// pick a random starting group
-	g := randIntN(len(groups))
-	lastGroupIndex := uint32(len(s.groups))
-	for n := 0; n < len(groups); n++ {
-		group := &s.groups[g]
-		for i, c := range ctrl[g] {
+	var (
+		meta, hashes = s.meta, s.hashes
+		groupCount   = s.groupCount
+		g            = randIntN(groupCount) // pick a random starting group
+	)
+	for n := uint32(0); n < groupCount; n++ {
+		var (
+			groupOffset = int(g) << groupBits
+			groupMeta   = (*groupMetadata)(meta[groupOffset:])
+			groupHashes = (*groupHashes)(hashes[groupOffset:])
+		)
+		for i, c := range groupMeta {
 			if c == empty || c == tombstone {
 				continue
 			}
-			h, v := group.hashes[i], group.values[i]
-			if stop := cb(h, v); stop {
+			if stop := cb(groupHashes[i], s.values[groupOffset+i]); stop {
 				return
 			}
 		}
 		g++
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -386,8 +437,10 @@ func (s *Set[V]) Iter(cb func(h Hash, v V) (stop bool)) {
 
 // Destruct resets the set to a zero'd state
 func (s *Set[V]) Destruct() {
-	s.ctrl = nil
-	s.groups = nil
+	s.meta = nil
+	s.hashes = nil
+	s.values = nil
+	s.groupCount = 0
 	s.resident = 0
 	s.dead = 0
 	s.limit = 0
@@ -395,12 +448,15 @@ func (s *Set[V]) Destruct() {
 
 // Clear removes all elements from the Map.
 func (s *Set[V]) Clear() {
-	for i := range s.ctrl {
-		s.ctrl[i] = emptyMeta
+	for i := range s.meta {
+		s.meta[i] = empty
 	}
-	emptyGroup := setGroup[V]{}
-	for i := range s.groups {
-		s.groups[i] = emptyGroup
+	for i := range s.hashes {
+		s.hashes[i] = 0
+	}
+	var emptyValue V
+	for i := range s.values {
+		s.values[i] = emptyValue
 	}
 	s.resident, s.dead = 0, 0
 }
@@ -425,65 +481,80 @@ func (s *Set[V]) UnusedCapacity() uint {
 // find returns the location of |hash| if present, or its insertion location if absent.
 // for performance, find is manually inlined into public methods.
 func (s *Set[V]) find(hash Hash, value V) (g, i uint32, ok bool) {
-	hi, lo := splitHash(hash)
-	g = probeStart(hi, len(s.groups))
-	lastGroupIndex := uint32(len(s.groups))
+	var (
+		meta, hashes = s.meta, s.hashes
+		groupCount   = s.groupCount
+		hi, lo       = splitHash(hash)
+	)
+	g = probeStart(hi, groupCount)
 	for {
-		ctrl := &s.ctrl[g]
-		group := &s.groups[g]
-		matches := metaMatchH2(ctrl, lo)
+		var (
+			groupOffset = g << groupBits
+			groupMeta   = (*groupMetadata)(meta[groupOffset:])
+			groupHashes = (*groupHashes)(hashes[groupOffset:])
+			matches     = metaMatchH2(groupMeta, lo)
+		)
 		for matches != 0 {
 			i, matches = nextMatch(matches)
-			if hash == group.hashes[i] && value == group.values[i] {
+			if hash == groupHashes[i] && value == s.values[groupOffset+i] {
 				return g, i, true
 			}
 		}
 		// |hash|value| is not in group |g|,
 		// stop probing if we see an empty slot
-		matches = metaMatchEmpty(ctrl)
+		matches = metaMatchEmpty(groupMeta)
 		if matches != 0 {
 			i, _ = nextMatch(matches)
 			return g, i, false
 		}
 		g += 1 // linear probing
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
 }
 
 func (s *Set[V]) nextSize() (n uint32) {
-	n = uint32(len(s.groups)) * 2
-	if s.dead >= (s.resident / 2) {
-		n = uint32(len(s.groups))
+	n = s.groupCount
+	if s.dead <= (s.resident / 2) {
+		n += n // double
 	}
 	return
 }
 
-func (s *Set[V]) resize(n uint32) {
-	oldGroups, oldCtrl := s.groups, s.ctrl
-	s.limit = n * maxAvgGroupLoad
+func (s *Set[V]) resize(groupCount uint32) {
+	var (
+		oldMeta, oldHashes, oldValues, oldGroupCount = s.meta, s.hashes, s.values, s.groupCount
+		capacity                                     = (groupCount << groupBits) // groupCount * groupSize
+	)
+	s.limit = groupCount * maxAvgGroupLoad
 	s.resident, s.dead = 0, 0
-	s.ctrl = make([]metadata, n)
-	s.groups = make([]setGroup[V], n)
-	for i := range s.ctrl {
-		s.ctrl[i] = emptyMeta
+	s.groupCount = groupCount
+	s.meta = make([]int8, capacity)
+	s.hashes = make([]Hash, capacity)
+	s.values = make([]V, capacity)
+	for i := range s.meta {
+		s.meta[i] = empty
 	}
 	// It is considered best practice to rehash / change seed during a resize, however
 	// we need to retain what we have been given as this container is not responsible
 	// for creating the hashes.
-	for c, oldCtrl := range oldCtrl {
-		oldGroup := &oldGroups[c]
-		for i, c := range oldCtrl {
+	for g := uint32(0); g < oldGroupCount; g++ {
+		var (
+			oldGroupOffset = int(g) << groupBits
+			oldGroupMeta   = (*groupMetadata)(oldMeta[oldGroupOffset:])
+			oldGroupHashes = (*groupHashes)(oldHashes[oldGroupOffset:])
+		)
+		for i, c := range oldGroupMeta {
 			if c == empty || c == tombstone {
 				continue
 			}
-			s.Put(oldGroup.hashes[i], oldGroup.values[i])
+			s.Put(oldGroupHashes[i], oldValues[oldGroupOffset+i])
 		}
 	}
 }
 
 func (s *Set[V]) loadFactor() float32 {
-	slots := float32(len(s.groups) * groupSize)
+	slots := float32(s.groupCount) * groupSize
 	return float32(s.resident-s.dead) / slots
 }
