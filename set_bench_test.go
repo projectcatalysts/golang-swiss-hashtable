@@ -31,13 +31,28 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func BenchmarkStringSets(b *testing.B) {
+func Benchmark_MakeStringSets(b *testing.B) {
+	const keySz = 8
+	sizes := []int{16, 128, 1024, 8192, 131072}
+	for _, n := range sizes {
+		b.Run("n="+strconv.Itoa(n), func(b *testing.B) {
+			b.Run("runtime map(make)", func(b *testing.B) {
+				benchmarkRuntimeMake(b, genStringSetData(keySz, n, hash64_String))
+			})
+			b.Run("swiss.Set(make)", func(b *testing.B) {
+				benchmarkSwissSetMake(b, genStringSetData(keySz, n, hash64_String))
+			})
+		})
+	}
+}
+
+func Benchmark_StringSets(b *testing.B) {
 	const keySz = 8
 	sizes := []int{16, 128, 1024, 8192, 131072}
 	for _, n := range sizes {
 		b.Run("n="+strconv.Itoa(n), func(b *testing.B) {
 			b.Run("runtime map", func(b *testing.B) {
-				benchmarkRuntimeSet(b, genStringSetData(keySz, n, hash64_String))
+				benchmarkRuntimeGet(b, genStringSetData(keySz, n, hash64_String))
 			})
 			b.Run("swiss.Set(Get)", func(b *testing.B) {
 				benchmarkSwissSetGet(b, genStringSetData(keySz, n, hash64_String))
@@ -49,7 +64,7 @@ func BenchmarkStringSets(b *testing.B) {
 	}
 }
 
-func BenchmarkInt64Sets(b *testing.B) {
+func Benchmark_Int64Sets(b *testing.B) {
 	sizes := []int{16, 128, 1024, 8192, 131072}
 	for _, n := range sizes {
 		b.Run("n="+strconv.Itoa(n), func(b *testing.B) {
@@ -86,21 +101,59 @@ func TestSetMemoryFootprint(t *testing.T) {
 	t.Logf("mean size ratio: %.3f", mean(samples))
 }
 
-func benchmarkRuntimeSet[V comparable](b *testing.B, values []hashAndValue[V]) {
-	valueCount := uint32(len(values))
-	mod := valueCount - 1 // power of 2 fast modulus
+// variables used to prevent compiler optimization
+var (
+	pcoBool bool
+)
+
+func benchmarkRuntimeMake[V comparable](b *testing.B, values []hashAndValue[V]) {
+	var (
+		valueCount = uint32(len(values))
+	)
 	require.Equal(b, 1, bits.OnesCount32(valueCount))
-	m := make(map[Hash]V, valueCount)
+	for i := 0; i < b.N; i++ {
+		var (
+			m = make(map[Hash]V, valueCount)
+		)
+		for _, v := range values {
+			m[v.hash] = v.value
+		}
+	}
+	b.ReportAllocs()
+}
+
+func benchmarkRuntimeGet[V comparable](b *testing.B, values []hashAndValue[V]) {
+	var (
+		valueCount = uint32(len(values))
+		m          = make(map[Hash]V, valueCount)
+		mod        = valueCount - 1 // power of 2 fast modulus
+	)
+	require.Equal(b, 1, bits.OnesCount32(valueCount))
 	for _, v := range values {
 		m[v.hash] = v.value
 	}
 	b.ResetTimer()
-	b.ReportAllocs()
 	var ok bool
 	for i := 0; i < b.N; i++ {
 		_, ok = m[values[uint32(i)&mod].hash]
+		pcoBool = pcoBool && ok
 	}
 	assert.True(b, ok)
+	b.ReportAllocs()
+}
+
+func benchmarkSwissSetMake[V comparable](b *testing.B, values []hashAndValue[V]) {
+	b.ReportAllocs()
+	var (
+		valueCount = uint32(len(values))
+	)
+	require.Equal(b, 1, bits.OnesCount32(valueCount))
+	for i := 0; i < b.N; i++ {
+		m := NewSet[V](valueCount)
+		for _, v := range values {
+			m.Put(v.hash, v.value)
+		}
+	}
 }
 
 func benchmarkSwissSetGet[V comparable](b *testing.B, values []hashAndValue[V]) {

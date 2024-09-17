@@ -30,7 +30,7 @@ import (
 // Map is an open-addressing hash map
 // based on Abseil's flat_hash_map.
 type Map[K comparable, V any] struct {
-	ctrl     []metadata
+	ctrl     []groupMetadata
 	groups   []mapGroup[K, V]
 	hash     maphash.Hasher[K]
 	resident uint32
@@ -54,7 +54,7 @@ type mapGroup[K comparable, V any] struct {
 func NewMap[K comparable, V any](sz uint32) (m *Map[K, V]) {
 	n := numGroups(sz)
 	m = &Map[K, V]{
-		ctrl:   make([]metadata, n),
+		ctrl:   make([]groupMetadata, n),
 		groups: make([]mapGroup[K, V], n),
 		hash:   maphash.NewHasher[K](),
 		limit:  n * maxAvgGroupLoad,
@@ -67,13 +67,17 @@ func NewMap[K comparable, V any](sz uint32) (m *Map[K, V]) {
 
 // Has returns true if |key| is present in |m|.
 func (m *Map[K, V]) Has(key K) (ok bool) {
-	hi, lo := splitHash(Hash(m.hash.Hash(key)))
-	g := probeStart(hi, len(m.groups))
-	var i uint32
-	lastGroupIndex := uint32(len(m.groups))
+	var (
+		groupCount = uint32(len(m.groups))
+		hi, lo     = splitHash(Hash(m.hash.Hash(key)))
+		g          = probeStart(hi, groupCount)
+		i          uint32
+	)
 	for { // inlined find loop
-		ctrl := &m.ctrl[g]
-		matches := metaMatchH2(ctrl, lo)
+		var (
+			ctrl    = &m.ctrl[g]
+			matches = metaMatchH2(ctrl, lo)
+		)
 		for matches != 0 {
 			i, matches = nextMatch(matches)
 			if key == m.groups[g].keys[i] {
@@ -89,7 +93,7 @@ func (m *Map[K, V]) Has(key K) (ok bool) {
 			return
 		}
 		g += 1 // linear probing
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -97,10 +101,12 @@ func (m *Map[K, V]) Has(key K) (ok bool) {
 
 // Get returns the |value| mapped by |key| if one exists.
 func (m *Map[K, V]) Get(key K) (value V, ok bool) {
-	hi, lo := splitHash(Hash(m.hash.Hash(key)))
-	g := probeStart(hi, len(m.groups))
-	var i uint32
-	lastGroupIndex := uint32(len(m.groups))
+	var (
+		groupCount = uint32(len(m.groups))
+		hi, lo     = splitHash(Hash(m.hash.Hash(key)))
+		g          = probeStart(hi, groupCount)
+		i          uint32
+	)
 	for { // inlined find loop
 		ctrl := &m.ctrl[g]
 		matches := metaMatchH2(ctrl, lo)
@@ -120,7 +126,7 @@ func (m *Map[K, V]) Get(key K) (value V, ok bool) {
 			return
 		}
 		g += 1 // linear probing
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -128,12 +134,12 @@ func (m *Map[K, V]) Get(key K) (value V, ok bool) {
 
 // GetKeys returns the set of all keys.  There will be no duplicates.
 func (m *Map[K, V]) GetKeys() []K {
-	keys := make([]K, m.Count())
-	keysIndex := uint(0)
-
-	// pick a random starting group
-	g := randIntN(len(m.groups))
-	lastGroupIndex := uint32(len(m.groups))
+	var (
+		groupCount = uint32(len(m.groups))
+		keys       = make([]K, m.Count())
+		keysIndex  = uint(0)
+		g          = randIntN(groupCount) // pick a random starting group
+	)
 	for n := 0; n < len(m.groups); n++ {
 		group := &m.groups[g]
 		for i, c := range m.ctrl[g] {
@@ -148,7 +154,7 @@ func (m *Map[K, V]) GetKeys() []K {
 			keysIndex++
 		}
 		g++
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -158,12 +164,12 @@ func (m *Map[K, V]) GetKeys() []K {
 
 // GetValues returns the set of all values.  There may be duplicates.
 func (m *Map[K, V]) GetValues() []V {
-	values := make([]V, m.Count())
-	valueIndex := uint(0)
-
-	// pick a random starting group
-	g := randIntN(len(m.groups))
-	lastGroupIndex := uint32(len(m.groups))
+	var (
+		groupCount = uint32(len(m.groups))
+		values     = make([]V, m.Count())
+		valueIndex = uint(0)
+		g          = randIntN(groupCount) // pick a random starting group
+	)
 	for n := 0; n < len(m.groups); n++ {
 		group := &m.groups[g]
 		for i, c := range m.ctrl[g] {
@@ -178,7 +184,7 @@ func (m *Map[K, V]) GetValues() []V {
 			valueIndex++
 		}
 		g++
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -188,12 +194,12 @@ func (m *Map[K, V]) GetValues() []V {
 
 // GetPairs returns the set of all hash and value pairs.  Each pair is unique.
 func (m *Map[K, V]) GetPairs() []MapPair[K, V] {
-	pairs := make([]MapPair[K, V], m.Count())
-	pairIndex := uint(0)
-
-	// pick a random starting group
-	g := randIntN(len(m.groups))
-	lastGroupIndex := uint32(len(m.groups))
+	var (
+		groupCount = uint32(len(m.groups))
+		pairs      = make([]MapPair[K, V], m.Count())
+		pairIndex  = uint(0)
+		g          = randIntN(groupCount) // pick a random starting group
+	)
 	for n := 0; n < len(m.groups); n++ {
 		group := &m.groups[g]
 		for i, c := range m.ctrl[g] {
@@ -208,7 +214,7 @@ func (m *Map[K, V]) GetPairs() []MapPair[K, V] {
 			pairIndex++
 		}
 		g++
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -221,14 +227,18 @@ func (m *Map[K, V]) Put(key K, value V) {
 	if m.resident >= m.limit {
 		m.rehash(m.nextSize())
 	}
-	hi, lo := splitHash(Hash(m.hash.Hash(key)))
-	g := probeStart(hi, len(m.groups))
-	var i uint32
-	lastGroupIndex := uint32(len(m.groups))
+	var (
+		groupCount = uint32(len(m.groups))
+		hi, lo     = splitHash(Hash(m.hash.Hash(key)))
+		g          = probeStart(hi, groupCount)
+		i          uint32
+	)
 	for { // inlined find loop
-		ctrl := &m.ctrl[g]
-		group := &m.groups[g]
-		matches := metaMatchH2(ctrl, lo)
+		var (
+			ctrl    = &m.ctrl[g]
+			group   = &m.groups[g]
+			matches = metaMatchH2(ctrl, lo)
+		)
 		for matches != 0 {
 			i, matches = nextMatch(matches)
 			if key == group.keys[i] { // update
@@ -248,7 +258,7 @@ func (m *Map[K, V]) Put(key K, value V) {
 			return
 		}
 		g += 1 // linear probing
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -256,14 +266,18 @@ func (m *Map[K, V]) Put(key K, value V) {
 
 // Delete attempts to remove |key|, returns true successful.
 func (m *Map[K, V]) Delete(key K) (ok bool) {
-	hi, lo := splitHash(Hash(m.hash.Hash(key)))
-	g := probeStart(hi, len(m.groups))
-	var i uint32
-	lastGroupIndex := uint32(len(m.groups))
+	var (
+		groupCount = uint32(len(m.groups))
+		hi, lo     = splitHash(Hash(m.hash.Hash(key)))
+		g          = probeStart(hi, groupCount)
+		i          uint32
+	)
 	for {
-		ctrl := &m.ctrl[g]
-		group := &m.groups[g]
-		matches := metaMatchH2(ctrl, lo)
+		var (
+			ctrl    = &m.ctrl[g]
+			group   = &m.groups[g]
+			matches = metaMatchH2(ctrl, lo)
+		)
 		for matches != 0 {
 			i, matches = nextMatch(matches)
 			if key == group.keys[i] {
@@ -297,7 +311,7 @@ func (m *Map[K, V]) Delete(key K) (ok bool) {
 			return
 		}
 		g += 1 // linear probing
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -311,10 +325,11 @@ func (m *Map[K, V]) Delete(key K) (ok bool) {
 func (m *Map[K, V]) Iter(cb func(k K, v V) (stop bool)) {
 	// take a consistent view of the table in case
 	// we rehash during iteration
-	ctrl, groups := m.ctrl, m.groups
-	// pick a random starting mapGroup
-	g := randIntN(len(groups))
-	lastGroupIndex := uint32(len(m.groups))
+	var (
+		ctrl, groups = m.ctrl, m.groups
+		groupCount   = uint32(len(groups))
+		g            = randIntN(groupCount) // pick a random starting mapGroup
+	)
 	for n := 0; n < len(groups); n++ {
 		group := &groups[g]
 		for i, c := range ctrl[g] {
@@ -327,7 +342,7 @@ func (m *Map[K, V]) Iter(cb func(k K, v V) (stop bool)) {
 			}
 		}
 		g++
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -365,8 +380,8 @@ func (m *Map[K, V]) UnusedCapacity() int {
 // find returns the location of |key| if present, or its insertion location if absent.
 // for performance, find is manually inlined into public methods.
 func (m *Map[K, V]) find(key K, hi h1, lo h2) (g, i uint32, ok bool) {
-	g = probeStart(hi, len(m.groups))
-	lastGroupIndex := uint32(len(m.groups))
+	groupCount := uint32(len(m.groups))
+	g = probeStart(hi, groupCount)
 	for {
 		ctrl := &m.ctrl[g]
 		group := &m.groups[g]
@@ -385,7 +400,7 @@ func (m *Map[K, V]) find(key K, hi h1, lo h2) (g, i uint32, ok bool) {
 			return g, i, false
 		}
 		g += 1 // linear probing
-		if g >= lastGroupIndex {
+		if g >= groupCount {
 			g = 0
 		}
 	}
@@ -405,7 +420,7 @@ func (m *Map[K, V]) rehash(n uint32) {
 	m.limit = n * maxAvgGroupLoad
 	m.resident, m.dead = 0, 0
 	m.groups = make([]mapGroup[K, V], n)
-	m.ctrl = make([]metadata, n)
+	m.ctrl = make([]groupMetadata, n)
 	for i := range m.ctrl {
 		m.ctrl[i] = emptyMeta
 	}

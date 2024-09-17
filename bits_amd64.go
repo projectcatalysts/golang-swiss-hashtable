@@ -24,18 +24,19 @@ import (
 )
 
 const (
-	groupSize       = 16
+	groupSize       = 16 // Expected to be a power of 2
+	groupBits       = 4  // The number of bits used to store a groupSize
 	maxAvgGroupLoad = 14
 )
 
 type bitset uint16
 
-func metaMatchH2(m *metadata, h h2) bitset {
+func metaMatchH2(m *groupMetadata, h h2) bitset {
 	b := simd.MatchMetadata((*[16]int8)(m), int8(h))
 	return bitset(b)
 }
 
-func metaMatchEmpty(m *metadata) bitset {
+func metaMatchEmpty(m *groupMetadata) bitset {
 	b := simd.MatchMetadata((*[16]int8)(m), empty)
 	return bitset(b)
 }

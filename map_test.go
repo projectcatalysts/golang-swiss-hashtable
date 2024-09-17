@@ -312,7 +312,7 @@ func testMapProbeStats[K comparable](t *testing.T, keys []K) {
 func getMapProbeLength[K comparable, V any](t *testing.T, m *Map[K, V], key K) (length uint32, ok bool) {
 	var end uint32
 	hi, lo := splitHash(Hash(m.hash.Hash(key)))
-	start := probeStart(hi, len(m.groups))
+	start := probeStart(hi, uint32(len(m.groups)))
 	end, _, ok = m.find(key, hi, lo)
 	if end < start { // wrapped
 		end += uint32(len(m.groups))

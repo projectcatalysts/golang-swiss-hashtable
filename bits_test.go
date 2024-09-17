@@ -24,7 +24,7 @@ import (
 )
 
 func TestMatchMetadata(t *testing.T) {
-	var meta metadata
+	var meta groupMetadata
 	for i := range meta {
 		meta[i] = int8(i)
 	}
@@ -72,7 +72,7 @@ func TestMatchMetadata(t *testing.T) {
 }
 
 func BenchmarkMatchMetadata(b *testing.B) {
-	var meta metadata
+	var meta groupMetadata
 	for i := range meta {
 		meta[i] = int8(i)
 	}
